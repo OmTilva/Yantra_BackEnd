@@ -310,6 +310,186 @@ module.exports.sellStock = async (req, res) => {
   }
 };
 
+module.exports.tradeWithMarket = async (req, res) => {
+  try {
+    const { username, stockName, quantity, action } = req.body;
+
+    // Validate input
+    if (!username || !stockName || !quantity || !action) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    // Fetch user details by username
+    const user = await userModel.findOne({ username: username.trim() });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if the user has the role "user"
+    if (user.role !== "user") {
+      return res.status(403).json({
+        message: "Only users with role 'user' can trade with the market",
+      });
+    }
+
+    // Fetch stock details by stockName
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+    if (!stock) {
+      return res.status(404).json({ message: "Stock not found" });
+    }
+
+    const totalCost = Number(quantity) * Number(stock.currentPrice);
+
+    if (action === "buy") {
+      // User buying from the market
+      if (Number(user.balance) < totalCost) {
+        return res.status(400).json({ message: "Insufficient balance" });
+      }
+
+      if (Number(stock.availableUnits) < Number(quantity)) {
+        return res
+          .status(400)
+          .json({ message: "Not enough stock available in the market" });
+      }
+
+      // Update user's portfolio and balance
+      const userStock = user.portfolio.find(
+        (p) => p.stock.toString() === stock._id.toString()
+      );
+      if (userStock) {
+        const newTotalQuantity = Number(userStock.quantity) + Number(quantity);
+        const newTotalCost =
+          Number(userStock.quantity) * Number(userStock.averageBuyPrice) +
+          totalCost;
+        userStock.quantity = newTotalQuantity;
+        userStock.averageBuyPrice = (newTotalCost / newTotalQuantity).toFixed(
+          2
+        );
+      } else {
+        user.portfolio.push({
+          stock: stock._id,
+          quantity: Number(quantity),
+          averageBuyPrice: stock.currentPrice,
+        });
+      }
+      user.balance = Number(user.balance) - totalCost;
+      stock.availableUnits = Number(stock.availableUnits) - Number(quantity);
+
+      await user.save();
+      await stock.save();
+
+      // Calculate the new stock price
+      const priceDifference =
+        Number(stock.currentPrice) - Number(stock.previousClose);
+      const priceChangeFactor = parseFloat(
+        (
+          (Number(quantity) / Number(stock.totalUnits)) *
+          (priceDifference + 2.4) *
+          12.6
+        ).toFixed(2)
+      );
+
+      // Update previousClose before updating currentPrice
+      stock.previousClose = Number(stock.currentPrice);
+      stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
+
+      // Update the stock price in the collection
+      await stock.save();
+
+      // Fetch the admin's username from the session
+      const adminUsername = req.user.username;
+
+      // Generate a transaction ID
+      const transactionId = uuidv4();
+
+      // Log the transaction
+      const transaction = new Transaction({
+        transactionID: transactionId,
+        bankerUsername: adminUsername,
+        sellerID: null, // Market is the seller
+        buyerID: user._id,
+        stockNumber: stock._id,
+        units: Number(quantity),
+        price: Number(stock.currentPrice),
+        totalPrice: totalCost,
+        originalPrice: Number(stock.currentPrice),
+      });
+      await transaction.save();
+
+      return res
+        .status(200)
+        .json({ message: "Stock purchased from the market", transaction });
+    } else if (action === "sell") {
+      // User selling to the market
+      const userStock = user.portfolio.find(
+        (p) => p.stock.toString() === stock._id.toString()
+      );
+      if (!userStock || Number(userStock.quantity) < Number(quantity)) {
+        return res.status(400).json({ message: "Insufficient stock quantity" });
+      }
+
+      // Update user's portfolio and balance
+      userStock.quantity = Number(userStock.quantity) - Number(quantity);
+      if (Number(userStock.quantity) === 0) {
+        user.portfolio = user.portfolio.filter(
+          (p) => p.stock.toString() !== stock._id.toString()
+        );
+      }
+      user.balance = Number(user.balance) + totalCost;
+      stock.availableUnits = Number(stock.availableUnits) + Number(quantity);
+
+      await user.save();
+      await stock.save();
+
+      // Calculate the new stock price
+      const priceDifference =
+        Number(stock.currentPrice) - Number(stock.previousClose);
+      const priceChangeFactor = parseFloat(
+        (
+          (Number(quantity) / Number(stock.totalUnits)) *
+          (priceDifference + 2.4) *
+          12.6
+        ).toFixed(2)
+      );
+
+      // Update previousClose before updating currentPrice
+      stock.previousClose = Number(stock.currentPrice);
+      stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
+
+      // Update the stock price in the collection
+      await stock.save();
+
+      // Fetch the admin's username from the session
+      const adminUsername = req.user.username;
+
+      // Generate a transaction ID
+      const transactionId = uuidv4();
+
+      // Log the transaction
+      const transaction = new Transaction({
+        transactionID: transactionId,
+        bankerUsername: adminUsername,
+        sellerID: user._id,
+        buyerID: null, // Market is the buyer
+        stockNumber: stock._id,
+        units: Number(quantity),
+        price: Number(stock.currentPrice),
+        totalPrice: totalCost,
+        originalPrice: Number(stock.currentPrice),
+      });
+      await transaction.save();
+
+      return res
+        .status(200)
+        .json({ message: "Stock sold to the market", transaction });
+    } else {
+      return res.status(400).json({ message: "Invalid action" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports.updateStockValue = async (req, res) => {
   try {
     const { stockName, value, type, action } = req.body;
