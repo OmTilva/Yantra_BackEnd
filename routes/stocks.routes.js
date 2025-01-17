@@ -21,4 +21,16 @@ router.post(
 
 router.post("/sell-stock", authMiddleware.authUser, stocksController.sellStock);
 
+router.post(
+  "/update-stock",
+  authMiddleware.authUser,
+  stocksController.updateStockValue
+);
+
+router.post(
+  "/update-market",
+  authMiddleware.authUser,
+  stocksController.updateMarketValue
+);
+
 module.exports = router;

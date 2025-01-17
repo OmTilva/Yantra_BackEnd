@@ -45,28 +45,6 @@ module.exports.getIPOStocks = async (req, res) => {
   }
 };
 
-module.exports.updateStock = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
-      return res
-        .status(403)
-        .json({ message: "Unauthorized: Admin access required" });
-    }
-
-    const stock = await stockModel.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
-
-    if (!stock) {
-      return res.status(404).json({ message: "Stock not found" });
-    }
-
-    res.status(200).json(stock);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
 module.exports.startIPO = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -327,6 +305,83 @@ module.exports.sellStock = async (req, res) => {
     await transaction.save();
 
     res.status(200).json({ message: "Stock sold successfully", transaction });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.updateStockValue = async (req, res) => {
+  try {
+    const { stockName, value, type, action } = req.body;
+
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: Admin access required" });
+    }
+
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+    if (!stock) {
+      return res.status(404).json({ message: "Stock not found" });
+    }
+
+    let newValue;
+    if (type === "value") {
+      newValue =
+        action === "increase"
+          ? stock.currentPrice + value
+          : stock.currentPrice - value;
+    } else if (type === "percentage") {
+      const percentageChange = (stock.currentPrice * value) / 100;
+      newValue =
+        action === "increase"
+          ? stock.currentPrice + percentageChange
+          : stock.currentPrice - percentageChange;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "Invalid type. Must be 'value' or 'percentage'." });
+    }
+
+    stock.previousClose = stock.currentPrice;
+    stock.currentPrice = newValue;
+
+    await stock.save();
+
+    res
+      .status(200)
+      .json({ message: "Stock value updated successfully", stock });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.updateMarketValue = async (req, res) => {
+  try {
+    const { percentage, action } = req.body;
+
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: Admin access required" });
+    }
+
+    const stocks = await stockModel.find();
+
+    for (const stock of stocks) {
+      const percentageChange = (stock.currentPrice * percentage) / 100;
+      const newValue =
+        action === "increase"
+          ? stock.currentPrice + percentageChange
+          : stock.currentPrice - percentageChange;
+
+      stock.previousClose = stock.currentPrice;
+      stock.currentPrice = newValue;
+
+      await stock.save();
+    }
+
+    res.status(200).json({ message: "Market values updated successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
