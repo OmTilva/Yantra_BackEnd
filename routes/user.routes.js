@@ -9,4 +9,10 @@ router.get("/all", authMiddleware.authUser, userController.getAllUsers);
 
 router.get("/role", authMiddleware.authUser, userController.getUserRole);
 
+router.put(
+  "/update-role",
+  authMiddleware.authUser,
+  userController.updateUserRole
+);
+
 module.exports = router;
