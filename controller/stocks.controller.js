@@ -18,6 +18,14 @@ module.exports.addStock = async (req, res) => {
         .json({ message: "Unauthorized: Admin access required" });
     }
 
+    // Check if the stock already exists
+    const existingStock = await stockModel.findOne({
+      stockName: req.body.stockName,
+    });
+    if (existingStock) {
+      return res.status(400).json({ message: "Stock already exists" });
+    }
+
     const stock = await stockModel.create(req.body);
     res.status(201).json(stock);
   } catch (error) {
