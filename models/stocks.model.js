@@ -75,9 +75,9 @@ stockSchema.methods.calculateIPOLaunchingPrice = async function () {
 
   const demandRatio = demandVolume / this.totalUnits;
   console.log("demandRatio:", demandRatio);
-  const multiplier = 2.0; // Adjust this value to make the formula more bullish
+  const multiplier = 0.8; // Adjust this value to make the formula more bullish
   const ipoLaunchingPrice =
-    this.ipoDetails.issuePrice * (1 + multiplier * demandRatio);
+    this.ipoDetails.issuePrice * (0.9 + multiplier * demandRatio);
   console.log("ipoLaunchingPrice:", ipoLaunchingPrice);
 
   this.currentPrice = ipoLaunchingPrice;
