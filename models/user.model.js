@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 const userSchema = new mongoose.Schema({
+  
   username: {
     type: String,
     required: [true, "Name is required"],
@@ -18,7 +19,8 @@ const userSchema = new mongoose.Schema({
 
   balance: {
     type: Number,
-    default: 1000000,
+    required: true,
+    default: 1000000, // 10 lakhs
   },
 
   portfolio: [
@@ -45,11 +47,11 @@ const userSchema = new mongoose.Schema({
         enum: ["PENDING", "ALLOTTED", "REJECTED"],
         default: "PENDING",
       },
-      appliedAt: {
-        type: Date,
-        default: Date.now,
-      },
       allottedUnits: {
+        type: Number,
+        default: 0,
+      },
+      totalApplicationPrice: {
         type: Number,
         default: 0,
       },
@@ -59,20 +61,18 @@ const userSchema = new mongoose.Schema({
   transactions: [
     {
       type: {
-        type: {
-          type: String,
-          enum: ["BUY", "SELL"],
-        },
-        stock: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Stock",
-        },
-        quantity: Number,
-        price: Number,
-        date: {
-          type: Date,
-          default: Date.now,
-        },
+        type: String,
+        enum: ["BUY", "SELL"],
+      },
+      stock: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Stock",
+      },
+      quantity: Number,
+      price: Number,
+      date: {
+        type: Date,
+        default: Date.now,
       },
     },
   ],

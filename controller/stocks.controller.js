@@ -45,9 +45,59 @@ module.exports.getAllStocks = async (req, res) => {
 module.exports.getIPOStocks = async (req, res) => {
   try {
     const stocks = await stockModel.find({
-      status: { $in: ["IPO"] },
+      status: { $in: ["IPO", "UPCOMING"] },
     });
     res.status(200).json(stocks);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.getUpcomingIPOs = async (req, res) => {
+  try {
+    const upcomingIPOs = await stockModel.find({ status: "UPCOMING" });
+    res.status(200).json(upcomingIPOs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.getApplicantsForIPO = async (req, res) => {
+  try {
+    const { stockName } = req.params;
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+    if (!stock) {
+      return res.status(404).json({ message: "Stock not found" });
+    }
+
+    const applications = await userModel.aggregate([
+      { $unwind: "$ipoApplications" },
+      { $match: { "ipoApplications.stock": stock._id } },
+      {
+        $lookup: {
+          from: "stocks",
+          localField: "ipoApplications.stock",
+          foreignField: "_id",
+          as: "stockDetails",
+        },
+      },
+      { $unwind: "$stockDetails" },
+      {
+        $project: {
+          _id: "$ipoApplications._id",
+          username: "$username",
+          stockName: "$stockDetails.stockName",
+          stockId: "$stockDetails._id",
+          lots: "$ipoApplications.lots",
+          status: "$ipoApplications.status",
+          applicationPrice: "$ipoApplications.applicationPrice",
+          totalApplicationPrice: "$ipoApplications.totalApplicationPrice",
+        },
+      },
+    ]);
+    console.log(applications);
+    res.status(200).json(applications);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -61,32 +111,23 @@ module.exports.startIPO = async (req, res) => {
         .json({ message: "Unauthorized: Admin access required" });
     }
 
-    const stock = await stockModel.findById(req.params.id);
+    const { ipoName } = req.body;
+    const stock = await stockModel.findOne({ stockName: ipoName.trim() });
+
     if (!stock) {
       return res.status(404).json({ message: "Stock not found" });
     }
 
-    await stock.startIPOSubscription();
-    res.status(200).json(stock);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-module.exports.endIPO = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
+    if (stock.status !== "UPCOMING") {
       return res
-        .status(403)
-        .json({ message: "Unauthorized: Admin access required" });
+        .status(400)
+        .json({ message: "Only upcoming IPOs can be started" });
     }
 
-    const stock = await stockModel.findById(req.params.id);
-    if (!stock) {
-      return res.status(404).json({ message: "Stock not found" });
-    }
+    stock.status = "IPO";
+    stock.ipoDetails.subscriptionStartDate = new Date();
+    await stock.save();
 
-    await stock.endIPOSubscription();
     res.status(200).json(stock);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -191,6 +232,18 @@ module.exports.allotMultipleStocks = async (req, res) => {
     }
 
     res.status(200).json({ message: "Allotment process completed", results });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.getStockById = async (req, res) => {
+  try {
+    const stock = await stockModel.findById(req.params.id);
+    if (!stock) {
+      return res.status(404).json({ message: "Stock not found" });
+    }
+    res.status(200).json(stock);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -570,6 +623,331 @@ module.exports.updateMarketValue = async (req, res) => {
     }
 
     res.status(200).json({ message: "Market values updated successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.applyForIPO = async (req, res) => {
+  try {
+    const { username, stockId, lots } = req.body;
+
+    // Check if the user making the request is a banker or admin
+    if (!["banker", "admin"].includes(req.user.role)) {
+      return res.status(403).json({
+        message:
+          "Unauthorized: Only bankers and admins can apply for IPO on behalf of users",
+      });
+    }
+
+    const user = await userModel.findOne({ username: username.trim() });
+    const stock = await stockModel.findById(stockId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!stock || stock.status !== "IPO") {
+      return res.status(400).json({ message: "Invalid IPO application" });
+    }
+
+    const totalApplicationPrice =
+      lots * stock.ipoDetails.minLotSize * stock.ipoDetails.issuePrice;
+
+    if (user.balance < totalApplicationPrice) {
+      return res.status(400).json({ message: "Insufficient balance" });
+    }
+
+    user.balance -= totalApplicationPrice;
+    user.ipoApplications.push({
+      stock: stockId,
+      lots,
+      applicationPrice: stock.ipoDetails.issuePrice,
+      totalApplicationPrice,
+    });
+
+    await user.save();
+    res.status(200).json({ message: "IPO application submitted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.endIPOApplications = async (req, res) => {
+  try {
+    const { stockName } = req.body;
+    const adminUser = await userModel.findById(req.user._id);
+
+    // Check if the user is an admin
+    if (!adminUser || adminUser.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: Admin access required" });
+    }
+
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+    if (!stock || stock.status !== "IPO") {
+      return res
+        .status(400)
+        .json({ message: "Invalid stock or not in IPO status" });
+    }
+
+    // Check if the IPO has started
+    if (!stock.ipoDetails.subscriptionStartDate) {
+      return res.status(400).json({ message: "IPO has not started yet" });
+    }
+
+    // End IPO applications
+    stock.ipoDetails.subscriptionEndDate = new Date();
+    await stock.save();
+
+    res.status(200).json({ message: "IPO applications ended", stock });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// module.exports.allotIPO = async (req, res) => {
+//   try {
+//     const { stockName, username, isAllotted } = req.body;
+//     const adminUser = await userModel.findById(req.user._id);
+
+//     // Check if the user is an admin
+//     if (!adminUser || adminUser.role !== "admin") {
+//       return res
+//         .status(403)
+//         .json({ message: "Unauthorized: Admin access required" });
+//     }
+
+//     const user = await userModel.findOne({ username: username.trim() });
+//     const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+//     if (!user || !stock) {
+//       return res.status(400).json({ message: "Invalid user or stock" });
+//     }
+
+//     const application = user.ipoApplications.find(
+//       (app) => app.stock.equals(stockId) && app.status === "PENDING"
+//     );
+
+//     if (!application) {
+//       return res
+//         .status(400)
+//         .json({ message: "No pending IPO application found" });
+//     }
+
+//     if (isAllotted) {
+//       const ipoLaunchingPrice = await stock.calculateIPOLaunchingPrice();
+//       const allottedUnits = application.lots * stock.ipoDetails.minLotSize;
+
+//       user.portfolio.push({
+//         stock: stockId,
+//         quantity: allottedUnits,
+//         averageBuyPrice: stock.ipoDetails.issuePrice,
+//       });
+
+//       application.status = "ALLOTTED";
+//       application.allottedUnits = allottedUnits;
+//       application.totalApplicationPrice = 0;
+//     } else {
+//       user.balance += application.totalApplicationPrice;
+//       application.status = "REJECTED";
+//       application.totalApplicationPrice = 0;
+//     }
+
+//     await user.save();
+//     res.status(200).json({ message: "IPO allotment processed successfully" });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+module.exports.allotIPO = async (req, res) => {
+  try {
+    const { stockName, username, lots } = req.body;
+    const adminUser = await userModel.findById(req.user._id);
+
+    // Check if the user is an admin
+    if (!adminUser || adminUser.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: Admin access required" });
+    }
+
+    const user = await userModel.findOne({ username: username.trim() });
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+    if (!user || !stock) {
+      return res.status(400).json({ message: "Invalid user or stock" });
+    }
+
+    const application = user.ipoApplications.find(
+      (app) => app.stock.equals(stock._id) && app.status === "PENDING"
+    );
+
+    if (!application) {
+      return res
+        .status(400)
+        .json({ message: "No pending IPO application found" });
+    }
+
+    const allottedUnits = lots * stock.ipoDetails.minLotSize;
+
+    user.portfolio.push({
+      stock: stock._id,
+      quantity: allottedUnits,
+      averageBuyPrice: stock.ipoDetails.issuePrice,
+    });
+
+    application.status = "ALLOTTED";
+    application.allottedUnits = allottedUnits;
+    application.totalApplicationPrice = 0;
+
+    await user.save();
+
+    res.status(200).json({ message: "IPO allotment processed successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// module.exports.closeIPOAllotment = async (req, res) => {
+//   try {
+//     const { stockName } = req.body;
+//     const adminUser = await userModel.findById(req.user._id);
+
+//     // Check if the user is an admin
+//     if (!adminUser || adminUser.role !== "admin") {
+//       return res
+//         .status(403)
+//         .json({ message: "Unauthorized: Admin access required" });
+//     }
+
+//     const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+//     if (!stock || stock.status !== "IPO") {
+//       return res
+//         .status(400)
+//         .json({ message: "Invalid stock or not in IPO status" });
+//     }
+
+//     // Check if the IPO has started
+//     if (!stock.ipoDetails.subscriptionStartDate) {
+//       return res.status(400).json({ message: "IPO has not started yet" });
+//     }
+
+//     // Check if the IPO applications have ended
+//     if (!stock.ipoDetails.subscriptionEndDate) {
+//       return res
+//         .status(400)
+//         .json({ message: "IPO applications have not ended yet" });
+//     }
+
+//     // Calculate IPO launching price
+//     const ipoLaunchingPrice = await stock.calculateIPOLaunchingPrice();
+
+//     // Update stock status to LISTED
+//     stock.status = "LISTED";
+//     stock.currentPrice = ipoLaunchingPrice;
+//     stock.previousClose = stock.ipoDetails.issuePrice;
+
+//     // Calculate available volume
+//     const users = await userModel.find({
+//       "ipoApplications.stock": stock._id,
+//       "ipoApplications.status": "ALLOTTED",
+//     });
+
+//     let totalAllottedUnits = 0;
+//     users.forEach((user) => {
+//       user.ipoApplications.forEach((application) => {
+//         if (application.stock.equals(stock._id)) {
+//           totalAllottedUnits += application.allottedUnits;
+//         }
+//       });
+//     });
+
+//     stock.availableUnits = stock.totalUnits - totalAllottedUnits;
+
+//     await stock.save();
+
+//     res
+//       .status(200)
+//       .json({ message: "IPO allotment closed and stock listed", stock });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+module.exports.closeIPOAllotment = async (req, res) => {
+  try {
+    const { stockName } = req.body;
+    const adminUser = await userModel.findById(req.user._id);
+
+    // Check if the user is an admin
+    if (!adminUser || adminUser.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: Admin access required" });
+    }
+
+    const stock = await stockModel.findOne({ stockName: stockName.trim() });
+
+    if (!stock || stock.status !== "IPO") {
+      return res
+        .status(400)
+        .json({ message: "Invalid stock or not in IPO status" });
+    }
+
+    // Check if the IPO has started
+    if (!stock.ipoDetails.subscriptionStartDate) {
+      return res.status(400).json({ message: "IPO has not started yet" });
+    }
+
+    // Check if the IPO applications have ended
+    if (!stock.ipoDetails.subscriptionEndDate) {
+      return res
+        .status(400)
+        .json({ message: "IPO applications have not ended yet" });
+    }
+
+    // Calculate IPO launching price
+    const ipoLaunchingPrice = await stock.calculateIPOLaunchingPrice();
+    // console.log(ipoLaunchingPrice);
+
+    // Update stock status to LISTED
+    stock.status = "LISTED";
+    stock.currentPrice = ipoLaunchingPrice;
+    stock.previousClose = stock.ipoDetails.issuePrice;
+
+    // Calculate available volume
+    const users = await userModel.find({
+      "ipoApplications.stock": stock._id,
+    });
+
+    let totalAllottedUnits = 0;
+    for (const user of users) {
+      for (const application of user.ipoApplications) {
+        if (application.stock.equals(stock._id)) {
+          if (application.status === "ALLOTTED") {
+            totalAllottedUnits += application.allottedUnits;
+          } else if (application.status === "PENDING") {
+            user.balance += application.totalApplicationPrice;
+            application.status = "REJECTED";
+            application.totalApplicationPrice = 0;
+            await user.save();
+          }
+        }
+      }
+    }
+
+    stock.availableUnits = stock.totalUnits - totalAllottedUnits;
+
+    await stock.save();
+
+    res
+      .status(200)
+      .json({ message: "IPO allotment closed and stock listed", stock });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

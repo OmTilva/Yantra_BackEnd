@@ -8,8 +8,14 @@ const stockSchema = new mongoose.Schema({
   },
   currentPrice: {
     type: Number,
-    required: [true, "Current price is required"],
     min: 0,
+    validate: {
+      validator: function (value) {
+        // If status is IPO, currentPrice is not required
+        return this.status === "IPO" || value !== undefined;
+      },
+      message: "Current price is required unless the status is IPO",
+    },
   },
   previousClose: {
     type: Number,
@@ -39,32 +45,45 @@ const stockSchema = new mongoose.Schema({
       type: Number,
       min: 1,
     },
-    subscriptionStartDate: Date,
-    subscriptionEndDate: Date,
-    listingDate: Date,
+    listingDate: {
+      type: Date,
+    },
+    subscriptionStartDate: {
+      type: Date,
+    },
+    subscriptionEndDate: {
+      type: Date,
+    },
   },
 });
 
-stockSchema.methods.startIPOSubscription = async function () {
-  if (this.status !== "UPCOMING") {
-    throw new Error("Only upcoming IPOs can be started");
-  }
-  this.status = "IPO";
-  this.ipoDetails.subscriptionStartDate = new Date();
-  await this.save();
-  return this;
-};
+stockSchema.methods.calculateIPOLaunchingPrice = async function () {
+  const users = await mongoose.model("User").find({
+    "ipoApplications.stock": this._id,
+  });
 
-stockSchema.methods.endIPOSubscription = async function () {
-  if (this.status !== "IPO") {
-    throw new Error("Can only end active IPO subscriptions");
-  }
-  this.status = "LISTED";
-  this.ipoDetails.subscriptionEndDate = new Date();
-  this.currentPrice = this.ipoDetails.issuePrice;
-  this.previousClose = this.ipoDetails.issuePrice;
+  let demandVolume = 0;
+  users.forEach((user) => {
+    user.ipoApplications.forEach((application) => {
+      if (application.stock.equals(this._id)) {
+        demandVolume += application.lots * this.ipoDetails.minLotSize;
+      }
+    });
+  });
+
+  console.log("demandVolume:", demandVolume);
+
+  const demandRatio = demandVolume / this.totalUnits;
+  console.log("demandRatio:", demandRatio);
+  const multiplier = 2.0; // Adjust this value to make the formula more bullish
+  const ipoLaunchingPrice =
+    this.ipoDetails.issuePrice * (1 + multiplier * demandRatio);
+  console.log("ipoLaunchingPrice:", ipoLaunchingPrice);
+
+  this.currentPrice = ipoLaunchingPrice;
   await this.save();
-  return this;
+
+  return ipoLaunchingPrice;
 };
 
 stockSchema.methods.isIPOActive = function () {
