@@ -58,11 +58,15 @@ module.exports.searchTransaction = async (req, res) => {
       }
     }
 
-    const transactions = await transactionModel.find(query);
+    const transactions = await transactionModel
+      .find(query)
+      .populate("buyerID", "username")
+      .populate("sellerID", "username")
+      .populate("stockNumber", "stockName");
+
     if (transactions.length === 0) {
       return res.status(404).json({ message: "No transactions found" });
     }
-
     res.status(200).json(transactions);
   } catch (error) {
     res.status(500).json({ message: error.message });

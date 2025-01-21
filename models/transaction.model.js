@@ -23,6 +23,7 @@ const transactionSchema = new mongoose.Schema(
     },
     stockNumber: {
       type: String,
+      ref: "Stock",
       required: [true, "Stock number is required"],
     },
     units: {
