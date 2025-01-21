@@ -9,6 +9,8 @@ router.get("/all", authMiddleware.authUser, userController.getAllUsers);
 
 router.get("/role", authMiddleware.authUser, userController.getUserRole);
 
+router.get("/me", authMiddleware.authUser, userController.getUserDetails);
+
 router.put(
   "/update-role",
   authMiddleware.authUser,

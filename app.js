@@ -12,6 +12,7 @@ const userRoutes = require("./routes/user.routes");
 const stockRoute = require("./routes/stocks.routes");
 const searchRoute = require("./routes/search.routes");
 const logsRoute = require("./routes/logs.routes");
+const brokerHouseRoutes = require("./routes/brokerHouse.routes");
 
 const app = express();
 
@@ -38,5 +39,7 @@ app.use("/stocks", stockRoute);
 app.use("/search", searchRoute);
 
 app.use("/logs", logsRoute);
+
+app.use("/brokerhouse", brokerHouseRoutes);
 
 module.exports = app;

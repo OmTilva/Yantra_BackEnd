@@ -1,4 +1,5 @@
 const userModel = require("../models/user.model");
+const brokerHouseModel = require("../models/brokerHouse.model");
 
 module.exports.createUser = async (req, res) => {
   try {
@@ -59,7 +60,7 @@ module.exports.getUserRole = async (req, res) => {
 
 module.exports.updateUserRole = async (req, res) => {
   try {
-    const { userId, role } = req.body;
+    const { userId, role, brokerHouseName } = req.body;
 
     // Check if user is admin
     if (req.user.role !== "admin") {
@@ -76,10 +77,44 @@ module.exports.updateUserRole = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    // If changing role to jobber, set brokerHouse to the provided brokerHouseName or null
+    if (role === "jobber") {
+      if (brokerHouseName) {
+        const brokerHouse = await brokerHouseModel.findOne({
+          name: brokerHouseName,
+        });
+        if (!brokerHouse) {
+          return res.status(404).json({ message: "BrokerHouse not found" });
+        }
+        user.brokerHouse = brokerHouse._id;
+
+        // Add jobber to broker house
+        brokerHouse.jobbers.push(user._id);
+        await brokerHouse.save();
+      } else {
+        user.brokerHouse = null;
+      }
+    } else {
+      user.brokerHouse = null; // Clear brokerHouse if role is not jobber
+    }
+
     user.role = role;
     await user.save();
 
     res.status(200).json({ message: "User role updated successfully" });
+  } catch (error) {
+    console.log(error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.getUserDetails = async (req, res) => {
+  try {
+    const user = await userModel.findById(req.user._id).populate("brokerHouse");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
