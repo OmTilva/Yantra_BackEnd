@@ -15,4 +15,10 @@ router.get(
   logsController.searchTransaction
 );
 
+router.get(
+  "/ipoLogs",
+  authMiddleware.authUser,
+  logsController.searchIpoTransactions
+);
+
 module.exports = router;

@@ -3,6 +3,7 @@ const stockModel = require("../models/stocks.model");
 const Transaction = require("../models/transaction.model");
 const brokerHouseModel = require("../models/brokerHouse.model");
 const userModel = require("../models/user.model");
+const ipoTransactionModel = require("../models/ipoTransaction.model");
 const { validationResult } = require("express-validator");
 const { v4: uuidv4 } = require("uuid");
 
@@ -149,86 +150,93 @@ module.exports.allotMultipleStocks = async (req, res) => {
     }
 
     const results = [];
+    let totalportfolio = 0;
     for (const allotment of allotments) {
       const { userId, stockId, quantity, price } = allotment;
       const user = await userModel.findById(userId);
       const stock = await stockModel.findById(stockId);
+      totalportfolio += quantity * price;
+      console.log(totalportfolio);
+      if (totalportfolio > user.balance) {
+        return res.status(400).json({ message: "Insufficient balance" });
+      } else {
+        if (!user || !stock) {
+          results.push({
+            userId,
+            stockId,
+            status: "failed",
+            message: "User or stock not found",
+          });
+          continue;
+        }
 
-      if (!user || !stock) {
-        results.push({
-          userId,
-          stockId,
-          status: "failed",
-          message: "User or stock not found",
-        });
-        continue;
-      }
+        const totalCost = Number(quantity) * Number(price);
+        if (Number(user.balance) < totalCost) {
+          results.push({
+            userId,
+            stockId,
+            status: "failed",
+            message: "Insufficient balance",
+          });
+          continue;
+        }
+        if (Number(stock.availableUnits) < Number(quantity)) {
+          results.push({
+            userId,
+            stockId,
+            status: "failed",
+            message: "Insufficient stock units",
+          });
+          continue;
+        }
 
-      const totalCost = Number(quantity) * Number(price);
-      if (Number(user.balance) < totalCost) {
-        results.push({
-          userId,
-          stockId,
-          status: "failed",
-          message: "Insufficient balance",
-        });
-        continue;
-      }
-      if (Number(stock.availableUnits) < Number(quantity)) {
-        results.push({
-          userId,
-          stockId,
-          status: "failed",
-          message: "Insufficient stock units",
-        });
-        continue;
-      }
-
-      try {
-        const existingPosition = user.portfolio.find(
-          (p) => p.stock.toString() === stockId
-        );
-        if (existingPosition) {
-          existingPosition.quantity =
-            Number(existingPosition.quantity) + Number(quantity);
-          existingPosition.averageBuyPrice = (
-            (Number(existingPosition.quantity) *
-              Number(existingPosition.averageBuyPrice) +
-              Number(quantity) * Number(price)) /
-            (Number(existingPosition.quantity) + Number(quantity))
-          ).toFixed(2);
-        } else {
-          user.portfolio.push({
+        try {
+          const existingPosition = user.portfolio.find(
+            (p) => p.stock.toString() === stockId
+          );
+          if (existingPosition) {
+            existingPosition.quantity =
+              Number(existingPosition.quantity) + Number(quantity);
+            existingPosition.averageBuyPrice = (
+              (Number(existingPosition.quantity) *
+                Number(existingPosition.averageBuyPrice) +
+                Number(quantity) * Number(price)) /
+              (Number(existingPosition.quantity) + Number(quantity))
+            ).toFixed(2);
+          } else {
+            user.portfolio.push({
+              stock: stockId,
+              quantity: Number(quantity),
+              averageBuyPrice: Number(price),
+            });
+          }
+          user.balance = Number(user.balance) - totalCost;
+          user.transactions.push({
+            type: "BUY",
             stock: stockId,
             quantity: Number(quantity),
-            averageBuyPrice: Number(price),
+            price: Number(price),
+          });
+          stock.availableUnits =
+            Number(stock.availableUnits) - Number(quantity);
+
+          await user.save();
+          await stock.save();
+
+          results.push({
+            userId,
+            stockId,
+            status: "success",
+            message: "Stock allotted successfully",
+          });
+        } catch (error) {
+          results.push({
+            userId,
+            stockId,
+            status: "failed",
+            message: error.message,
           });
         }
-        user.balance = Number(user.balance) - totalCost;
-        user.transactions.push({
-          type: "BUY",
-          stock: stockId,
-          quantity: Number(quantity),
-          price: Number(price),
-        });
-        stock.availableUnits = Number(stock.availableUnits) - Number(quantity);
-
-        await user.save();
-        await stock.save();
-
-        results.push({
-          userId,
-          stockId,
-          status: "success",
-          message: "Stock allotted successfully",
-        });
-      } catch (error) {
-        results.push({
-          userId,
-          stockId,
-          status: "failed",
-          message: error.message,
-        });
       }
     }
 
@@ -671,8 +679,7 @@ module.exports.applyForIPO = async (req, res) => {
     // Check if the user making the request is a banker or admin
     if (!["banker", "admin"].includes(req.user.role)) {
       return res.status(403).json({
-        message:
-          "Unauthorized: Only bankers and admins can apply for IPO",
+        message: "Unauthorized: Only bankers and admins can apply for IPO",
       });
     }
 
@@ -842,6 +849,20 @@ module.exports.allotIPO = async (req, res) => {
 
     await user.save();
 
+    // Create IPO transaction
+    const transactionId = uuidv4();
+    const ipoTransaction = new ipoTransactionModel({
+      transactionID: transactionId,
+      userID: user._id,
+      stockID: stock._id,
+      lots: lots,
+      allottedUnits: allottedUnits,
+      pricePerUnit: stock.ipoDetails.issuePrice,
+      totalPrice: allottedUnits * stock.ipoDetails.issuePrice,
+      status: "ALLOTTED",
+    });
+    await ipoTransaction.save();
+
     res.status(200).json({ message: "IPO allotment processed successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -964,7 +985,6 @@ module.exports.closeIPOAllotment = async (req, res) => {
     let totalAllottedUnits = 0;
     for (const user of users) {
       for (const application of user.ipoApplications) {
-
         if (application.stock.equals(stock._id)) {
           if (application.status === "ALLOTTED") {
             totalAllottedUnits += application.allottedUnits;
