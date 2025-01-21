@@ -564,6 +564,7 @@ module.exports.tradeWithMarket = async (req, res) => {
       // Update the stock price in the collection
       await stock.save();
 
+      
       // Fetch the admin's username from the session
       const adminUsername = req.user.username;
 
