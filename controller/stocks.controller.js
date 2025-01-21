@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const stockModel = require("../models/stocks.model");
 const Transaction = require("../models/transaction.model");
+const brokerHouseModel = require("../models/brokerHouse.model");
 const userModel = require("../models/user.model");
 const { validationResult } = require("express-validator");
 const { v4: uuidv4 } = require("uuid");
@@ -96,7 +97,7 @@ module.exports.getApplicantsForIPO = async (req, res) => {
         },
       },
     ]);
-    console.log(applications);
+    // console.log(applications);
     res.status(200).json(applications);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -251,10 +252,24 @@ module.exports.getStockById = async (req, res) => {
 
 module.exports.sellStock = async (req, res) => {
   try {
-    const { sellerName, buyerName, stockName, quantity, tradePrice } = req.body;
+    const {
+      sellerName,
+      buyerName,
+      stockName,
+      quantity,
+      tradePrice,
+      brokerHouseName,
+    } = req.body;
 
     // Validate input
-    if (!sellerName || !buyerName || !stockName || !quantity || !tradePrice) {
+    if (
+      !sellerName ||
+      !buyerName ||
+      !stockName ||
+      !quantity ||
+      !tradePrice ||
+      !brokerHouseName
+    ) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
@@ -280,6 +295,15 @@ module.exports.sellStock = async (req, res) => {
         .json({ message: "Only users with role 'user' can trade" });
     }
 
+    // 3. Fetch broker house details by brokerHouseName
+    const brokerHouse = await brokerHouseModel.findOne({
+      name: brokerHouseName.trim(),
+    });
+    if (!brokerHouse) {
+      return res.status(404).json({ message: "BrokerHouse not found" });
+    }
+    const brokerageRate = brokerHouse.brokerage;
+
     // 3. Verify if seller has enough stock
     const sellerStock = seller.portfolio.find(
       (p) => p.stock.toString() === stockId.toString()
@@ -290,6 +314,18 @@ module.exports.sellStock = async (req, res) => {
 
     // 4. Verify if buyer has enough balance
     const totalCost = Number(quantity) * Number(tradePrice);
+    const brokerageFee = (totalCost * brokerageRate) / 100;
+
+    //  Deduct the brokerage fee from both the buyer and seller
+    if (seller.balance < brokerageFee || buyer.balance < brokerageFee) {
+      return res.status(400).json({ message: "Insufficient balance" });
+    }
+    seller.balance -= brokerageFee;
+    buyer.balance -= brokerageFee;
+
+    await seller.save();
+    await buyer.save();
+
     if (Number(buyer.balance) < totalCost) {
       return res.status(400).json({ message: "Insufficient balance" });
     }
@@ -636,7 +672,7 @@ module.exports.applyForIPO = async (req, res) => {
     if (!["banker", "admin"].includes(req.user.role)) {
       return res.status(403).json({
         message:
-          "Unauthorized: Only bankers and admins can apply for IPO on behalf of users",
+          "Unauthorized: Only bankers and admins can apply for IPO",
       });
     }
 
@@ -928,9 +964,11 @@ module.exports.closeIPOAllotment = async (req, res) => {
     let totalAllottedUnits = 0;
     for (const user of users) {
       for (const application of user.ipoApplications) {
+
         if (application.stock.equals(stock._id)) {
           if (application.status === "ALLOTTED") {
             totalAllottedUnits += application.allottedUnits;
+            await user.save();
           } else if (application.status === "PENDING") {
             user.balance += application.totalApplicationPrice;
             application.status = "REJECTED";
