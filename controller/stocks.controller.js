@@ -171,6 +171,16 @@ module.exports.allotMultipleStocks = async (req, res) => {
         continue;
       }
 
+      if (price == null) {
+        results.push({
+          userId,
+          stockId,
+          status: "failed",
+          message: "Stock price cannot be null",
+        });
+        continue;
+      }
+
       const totalCost = quantity * price;
 
       if (totalCost > user.balance) {
