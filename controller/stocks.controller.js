@@ -138,7 +138,13 @@ module.exports.startIPO = async (req, res) => {
 
 module.exports.allotMultipleStocks = async (req, res) => {
   try {
-    if (!["banker", "admin"].includes(req.user.role)) {
+    const adminUser = await userModel.findById(req.user._id);
+
+    // Check if the user is an admin or banker
+    if (
+      !adminUser ||
+      (adminUser.role !== "admin" && adminUser.role !== "banker")
+    ) {
       return res.status(403).json({
         message: "Unauthorized: Only bankers and admins can allot stocks",
       });
@@ -150,94 +156,64 @@ module.exports.allotMultipleStocks = async (req, res) => {
     }
 
     const results = [];
-    let totalportfolio = 0;
     for (const allotment of allotments) {
       const { userId, stockId, quantity, price } = allotment;
       const user = await userModel.findById(userId);
       const stock = await stockModel.findById(stockId);
-      totalportfolio += quantity * price;
-      console.log(totalportfolio);
-      if (totalportfolio > user.balance) {
-        return res.status(400).json({ message: "Insufficient balance" });
-      } else {
-        if (!user || !stock) {
-          results.push({
-            userId,
-            stockId,
-            status: "failed",
-            message: "User or stock not found",
-          });
-          continue;
-        }
 
-        const totalCost = Number(quantity) * Number(price);
-        if (Number(user.balance) < totalCost) {
-          results.push({
-            userId,
-            stockId,
-            status: "failed",
-            message: "Insufficient balance",
-          });
-          continue;
-        }
-        if (Number(stock.availableUnits) < Number(quantity)) {
-          results.push({
-            userId,
-            stockId,
-            status: "failed",
-            message: "Insufficient stock units",
-          });
-          continue;
-        }
-
-        try {
-          const existingPosition = user.portfolio.find(
-            (p) => p.stock.toString() === stockId
-          );
-          if (existingPosition) {
-            existingPosition.quantity =
-              Number(existingPosition.quantity) + Number(quantity);
-            existingPosition.averageBuyPrice = (
-              (Number(existingPosition.quantity) *
-                Number(existingPosition.averageBuyPrice) +
-                Number(quantity) * Number(price)) /
-              (Number(existingPosition.quantity) + Number(quantity))
-            ).toFixed(2);
-          } else {
-            user.portfolio.push({
-              stock: stockId,
-              quantity: Number(quantity),
-              averageBuyPrice: Number(price),
-            });
-          }
-          user.balance = Number(user.balance) - totalCost;
-          user.transactions.push({
-            type: "BUY",
-            stock: stockId,
-            quantity: Number(quantity),
-            price: Number(price),
-          });
-          stock.availableUnits =
-            Number(stock.availableUnits) - Number(quantity);
-
-          await user.save();
-          await stock.save();
-
-          results.push({
-            userId,
-            stockId,
-            status: "success",
-            message: "Stock allotted successfully",
-          });
-        } catch (error) {
-          results.push({
-            userId,
-            stockId,
-            status: "failed",
-            message: error.message,
-          });
-        }
+      if (!user || !stock) {
+        results.push({
+          userId,
+          stockId,
+          status: "failed",
+          message: "Invalid user or stock",
+        });
+        continue;
       }
+
+      const totalCost = quantity * price;
+
+      if (totalCost > user.balance) {
+        return res.status(400).json({
+          message: `Insufficient balance for user: ${user.username}`,
+        });
+      }
+      // Deduct the total cost from the user's balance
+      user.balance -= totalCost;
+
+      // Check if the stock already exists in the user's portfolio
+      const existingPortfolioEntry = user.portfolio.find(
+        (p) => p.stock.toString() === stock._id.toString()
+      );
+
+      if (existingPortfolioEntry) {
+        // Update the quantity and average buy price
+        const newTotalQuantity = existingPortfolioEntry.quantity + quantity;
+        const newTotalCost =
+          existingPortfolioEntry.quantity *
+            existingPortfolioEntry.averageBuyPrice +
+          quantity * price;
+        existingPortfolioEntry.quantity = newTotalQuantity;
+        existingPortfolioEntry.averageBuyPrice = (
+          newTotalCost / newTotalQuantity
+        ).toFixed(2);
+      } else {
+        // Add a new entry to the portfolio
+        user.portfolio.push({
+          stock: stock._id,
+          quantity: quantity,
+          averageBuyPrice: price,
+        });
+      }
+
+      await user.save();
+
+      results.push({
+        userId,
+        stockId,
+        status: "success",
+        message: "Stock allotted successfully",
+      });
     }
 
     res.status(200).json({ message: "Allotment process completed", results });
@@ -564,7 +540,6 @@ module.exports.tradeWithMarket = async (req, res) => {
       // Update the stock price in the collection
       await stock.save();
 
-      
       // Fetch the admin's username from the session
       const adminUsername = req.user.username;
 
@@ -752,61 +727,6 @@ module.exports.endIPOApplications = async (req, res) => {
   }
 };
 
-// module.exports.allotIPO = async (req, res) => {
-//   try {
-//     const { stockName, username, isAllotted } = req.body;
-//     const adminUser = await userModel.findById(req.user._id);
-
-//     // Check if the user is an admin
-//     if (!adminUser || adminUser.role !== "admin") {
-//       return res
-//         .status(403)
-//         .json({ message: "Unauthorized: Admin access required" });
-//     }
-
-//     const user = await userModel.findOne({ username: username.trim() });
-//     const stock = await stockModel.findOne({ stockName: stockName.trim() });
-
-//     if (!user || !stock) {
-//       return res.status(400).json({ message: "Invalid user or stock" });
-//     }
-
-//     const application = user.ipoApplications.find(
-//       (app) => app.stock.equals(stockId) && app.status === "PENDING"
-//     );
-
-//     if (!application) {
-//       return res
-//         .status(400)
-//         .json({ message: "No pending IPO application found" });
-//     }
-
-//     if (isAllotted) {
-//       const ipoLaunchingPrice = await stock.calculateIPOLaunchingPrice();
-//       const allottedUnits = application.lots * stock.ipoDetails.minLotSize;
-
-//       user.portfolio.push({
-//         stock: stockId,
-//         quantity: allottedUnits,
-//         averageBuyPrice: stock.ipoDetails.issuePrice,
-//       });
-
-//       application.status = "ALLOTTED";
-//       application.allottedUnits = allottedUnits;
-//       application.totalApplicationPrice = 0;
-//     } else {
-//       user.balance += application.totalApplicationPrice;
-//       application.status = "REJECTED";
-//       application.totalApplicationPrice = 0;
-//     }
-
-//     await user.save();
-//     res.status(200).json({ message: "IPO allotment processed successfully" });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
 module.exports.allotIPO = async (req, res) => {
   try {
     const { stockName, username, lots } = req.body;
@@ -838,11 +758,30 @@ module.exports.allotIPO = async (req, res) => {
 
     const allottedUnits = lots * stock.ipoDetails.minLotSize;
 
-    user.portfolio.push({
-      stock: stock._id,
-      quantity: allottedUnits,
-      averageBuyPrice: stock.ipoDetails.issuePrice,
-    });
+    // Check if the stock already exists in the user's portfolio
+    const existingPortfolioEntry = user.portfolio.find(
+      (p) => p.stock.toString() === stock._id.toString()
+    );
+
+    if (existingPortfolioEntry) {
+      // Update the quantity and average buy price
+      const newTotalQuantity = existingPortfolioEntry.quantity + allottedUnits;
+      const newTotalCost =
+        existingPortfolioEntry.quantity *
+          existingPortfolioEntry.averageBuyPrice +
+        allottedUnits * stock.ipoDetails.issuePrice;
+      existingPortfolioEntry.quantity = newTotalQuantity;
+      existingPortfolioEntry.averageBuyPrice = (
+        newTotalCost / newTotalQuantity
+      ).toFixed(2);
+    } else {
+      // Add a new entry to the portfolio
+      user.portfolio.push({
+        stock: stock._id,
+        quantity: allottedUnits,
+        averageBuyPrice: stock.ipoDetails.issuePrice,
+      });
+    }
 
     application.status = "ALLOTTED";
     application.allottedUnits = allottedUnits;
@@ -869,73 +808,6 @@ module.exports.allotIPO = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-// module.exports.closeIPOAllotment = async (req, res) => {
-//   try {
-//     const { stockName } = req.body;
-//     const adminUser = await userModel.findById(req.user._id);
-
-//     // Check if the user is an admin
-//     if (!adminUser || adminUser.role !== "admin") {
-//       return res
-//         .status(403)
-//         .json({ message: "Unauthorized: Admin access required" });
-//     }
-
-//     const stock = await stockModel.findOne({ stockName: stockName.trim() });
-
-//     if (!stock || stock.status !== "IPO") {
-//       return res
-//         .status(400)
-//         .json({ message: "Invalid stock or not in IPO status" });
-//     }
-
-//     // Check if the IPO has started
-//     if (!stock.ipoDetails.subscriptionStartDate) {
-//       return res.status(400).json({ message: "IPO has not started yet" });
-//     }
-
-//     // Check if the IPO applications have ended
-//     if (!stock.ipoDetails.subscriptionEndDate) {
-//       return res
-//         .status(400)
-//         .json({ message: "IPO applications have not ended yet" });
-//     }
-
-//     // Calculate IPO launching price
-//     const ipoLaunchingPrice = await stock.calculateIPOLaunchingPrice();
-
-//     // Update stock status to LISTED
-//     stock.status = "LISTED";
-//     stock.currentPrice = ipoLaunchingPrice;
-//     stock.previousClose = stock.ipoDetails.issuePrice;
-
-//     // Calculate available volume
-//     const users = await userModel.find({
-//       "ipoApplications.stock": stock._id,
-//       "ipoApplications.status": "ALLOTTED",
-//     });
-
-//     let totalAllottedUnits = 0;
-//     users.forEach((user) => {
-//       user.ipoApplications.forEach((application) => {
-//         if (application.stock.equals(stock._id)) {
-//           totalAllottedUnits += application.allottedUnits;
-//         }
-//       });
-//     });
-
-//     stock.availableUnits = stock.totalUnits - totalAllottedUnits;
-
-//     await stock.save();
-
-//     res
-//       .status(200)
-//       .json({ message: "IPO allotment closed and stock listed", stock });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
 
 module.exports.closeIPOAllotment = async (req, res) => {
   try {
