@@ -178,8 +178,18 @@ module.exports.allotMultipleStocks = async (req, res) => {
           message: `Insufficient balance for user: ${user.username}`,
         });
       }
+
+      if (quantity > stock.availableUnits) {
+        return res.status(400).json({
+          message: `Insufficient stock available for stock: ${stock.stockName}`,
+        });
+      }
+
       // Deduct the total cost from the user's balance
       user.balance -= totalCost;
+
+      // Deduct the quantity from the stock's available units
+      stock.availableUnits -= quantity;
 
       // Check if the stock already exists in the user's portfolio
       const existingPortfolioEntry = user.portfolio.find(
