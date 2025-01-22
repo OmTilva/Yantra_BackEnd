@@ -217,6 +217,7 @@ module.exports.allotMultipleStocks = async (req, res) => {
       }
 
       await user.save();
+      await stock.save();
 
       results.push({
         userId,
