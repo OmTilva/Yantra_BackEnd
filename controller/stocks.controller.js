@@ -197,21 +197,14 @@ module.exports.allotMultipleStocks = async (req, res) => {
       );
 
       if (existingPortfolioEntry) {
-        // Update the quantity and average buy price
-        const newTotalQuantity = existingPortfolioEntry.quantity + quantity;
-        const newTotalCost =
-          existingPortfolioEntry.quantity *
-            existingPortfolioEntry.averageBuyPrice +
-          quantity * price;
-        existingPortfolioEntry.quantity = newTotalQuantity;
-        existingPortfolioEntry.averageBuyPrice = (
-          newTotalCost / newTotalQuantity
-        ).toFixed(2);
+        // Update the quantity without recalculating the average buy price
+        existingPortfolioEntry.quantity =
+          Number(existingPortfolioEntry.quantity) + Number(quantity);
       } else {
         // Add a new entry to the portfolio
         user.portfolio.push({
           stock: stock._id,
-          quantity: quantity,
+          quantity: Number(quantity),
           averageBuyPrice: price,
         });
       }
