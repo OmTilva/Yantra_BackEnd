@@ -79,7 +79,7 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: ["user", "jobber", "banker", "admin"],
-    default: "user",
+    required: true,
   },
   brokerHouse: {
     type: mongoose.Schema.Types.ObjectId,

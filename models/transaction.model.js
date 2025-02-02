@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
+const moment = require("moment-timezone");
 
 const transactionSchema = new mongoose.Schema(
   {
@@ -45,9 +46,8 @@ const transactionSchema = new mongoose.Schema(
       required: [true, "Original price is required"],
       min: [0, "Original price cannot be negative"],
     },
-    transactionDate: {
-      type: Date,
-      default: Date.now,
+    transactionTime: {
+      type: String,
     },
   },
   {
@@ -55,11 +55,13 @@ const transactionSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save middleware to calculate totalPrice
+// Pre-save middleware to calculate totalPrice and set transactionTime
 transactionSchema.pre("save", function (next) {
   if (this.isModified("units") || this.isModified("price")) {
     this.totalPrice = this.units * this.price;
   }
+  const now = moment().tz("Asia/Kolkata");
+  this.transactionTime = now.format("HH:mm:ss"); // Store only the time part in IST
   next();
 });
 
