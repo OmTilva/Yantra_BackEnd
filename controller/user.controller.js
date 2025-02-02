@@ -3,7 +3,15 @@ const brokerHouseModel = require("../models/brokerHouse.model");
 
 module.exports.createUser = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, role } = req.body;
+
+    // Validate username
+    const regex = /^[a-z0-9]*$/;
+    if (!regex.test(username)) {
+      return res.status(400).json({
+        message: "Only lowercase letters and numbers are allowed for username",
+      });
+    }
 
     // Check if user exists
     const existingUser = await userModel.findOne({ username });
@@ -19,6 +27,7 @@ module.exports.createUser = async (req, res) => {
       username,
       password: hashedPassword,
       balance: 1000000, // 10 lakhs
+      role,
     });
 
     const token = user.generateAuthToken();
