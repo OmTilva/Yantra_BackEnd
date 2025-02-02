@@ -16,6 +16,11 @@ const ipoTransactionSchema = new mongoose.Schema({
     ref: "Stock",
     required: true,
   },
+  adminID: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
   lots: {
     type: Number,
     required: true,

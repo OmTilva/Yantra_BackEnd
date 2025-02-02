@@ -809,6 +809,7 @@ module.exports.allotIPO = async (req, res) => {
       transactionID: transactionId,
       userID: user._id,
       stockID: stock._id,
+      adminID: adminUser._id,
       lots: lots,
       allottedUnits: allottedUnits,
       pricePerUnit: stock.ipoDetails.issuePrice,

@@ -74,7 +74,6 @@ module.exports.searchTransaction = async (req, res) => {
   }
 };
 
-
 module.exports.searchUserAccount = async (req, res) => {
   try {
     const { username } = req.query;
@@ -146,40 +145,90 @@ module.exports.searchTransaction = async (req, res) => {
   }
 };
 
+// module.exports.searchIpoTransactions = async (req, res) => {
+//   try {
+//     const { adminName, buyerName } = req.query;
+
+//     if (!adminName || !buyerName) {
+//       return res
+//         .status(400)
+//         .json({ message: "Admin name and buyer name are required" });
+//     }
+
+//     // Fetch admin details
+//     const admin = await userModel.findOne({ username: adminName.trim() });
+//     if (!admin || admin.role !== "admin") {
+//       return res
+//         .status(404)
+//         .json({ message: "Admin not found or not authorized" });
+//     }
+
+//     // Fetch buyer details
+//     const buyer = await userModel.findOne({ username: buyerName.trim() });
+//     if (!buyer) {
+//       return res.status(404).json({ message: "Buyer not found" });
+//     }
+
+//     // Fetch IPO transactions for the buyer
+//     const ipoTransactions = await ipoTransactionModel
+//       .find({ userID: buyer._id })
+//       .populate("userID", "username")
+//       .populate("stockID", "stockName")
+//       .populate("adminID", "username");
+
+//     if (ipoTransactions.length === 0) {
+//       return res
+//         .status(404)
+//         .json({ message: "No IPO transactions found for the buyer" });
+//     }
+
+//     res.status(200).json(ipoTransactions);
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
 module.exports.searchIpoTransactions = async (req, res) => {
   try {
     const { adminName, buyerName } = req.query;
 
-    if (!adminName || !buyerName) {
+    if (!adminName && !buyerName) {
       return res
         .status(400)
-        .json({ message: "Admin name and buyer name are required" });
+        .json({ message: "Either admin name or buyer name is required" });
     }
 
-    // Fetch admin details
-    const admin = await userModel.findOne({ username: adminName.trim() });
-    if (!admin || admin.role !== "admin") {
-      return res
-        .status(404)
-        .json({ message: "Admin not found or not authorized" });
+    let query = {};
+
+    if (adminName) {
+      // Fetch admin details
+      const admin = await userModel.findOne({ username: adminName.trim() });
+      if (!admin || admin.role !== "admin") {
+        return res
+          .status(404)
+          .json({ message: "Admin not found or not authorized" });
+      }
+      query.adminID = admin._id;
     }
 
-    // Fetch buyer details
-    const buyer = await userModel.findOne({ username: buyerName.trim() });
-    if (!buyer) {
-      return res.status(404).json({ message: "Buyer not found" });
+    if (buyerName) {
+      // Fetch buyer details
+      const buyer = await userModel.findOne({ username: buyerName.trim() });
+      if (!buyer) {
+        return res.status(404).json({ message: "Buyer not found" });
+      }
+      query.userID = buyer._id;
     }
 
-    // Fetch IPO transactions for the buyer
+    // Fetch IPO transactions based on the query
     const ipoTransactions = await ipoTransactionModel
-      .find({ userID: buyer._id })
+      .find(query)
       .populate("userID", "username")
-      .populate("stockID", "stockName");
+      .populate("stockID", "stockName")
+      .populate("adminID", "username");
 
     if (ipoTransactions.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "No IPO transactions found for the buyer" });
+      return res.status(404).json({ message: "No IPO transactions found" });
     }
 
     res.status(200).json(ipoTransactions);
