@@ -88,6 +88,10 @@ const userSchema = new mongoose.Schema({
       return this.role === "jobber";
     },
   },
+  isLoggedIn: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 userSchema.methods.generateAuthToken = function () {
