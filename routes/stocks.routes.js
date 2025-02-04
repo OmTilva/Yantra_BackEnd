@@ -30,6 +30,12 @@ router.post(
 router.post("/sell-stock", authMiddleware.authUser, stocksController.sellStock);
 
 router.post(
+  "/revert-transaction",
+  authMiddleware.authUser,
+  stocksController.revertTransaction
+);
+
+router.post(
   "/trade-with-market",
   authMiddleware.authUser,
   stocksController.tradeWithMarket

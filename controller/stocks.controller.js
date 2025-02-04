@@ -373,6 +373,7 @@ module.exports.sellStock = async (req, res) => {
     );
 
     // Update previousClose before updating currentPrice
+    const oldPrice = stock.previousClose;
     stock.previousClose = Number(stock.currentPrice);
     stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
 
@@ -384,7 +385,6 @@ module.exports.sellStock = async (req, res) => {
 
     // 9. Generate a transaction ID
     const transactionId = uuidv4();
-
     // 10. Log the transaction
     const transaction = new Transaction({
       transactionID: transactionId,
@@ -395,11 +395,114 @@ module.exports.sellStock = async (req, res) => {
       units: Number(quantity),
       price: Number(tradePrice),
       totalPrice: totalCost,
-      originalPrice: Number(stock.currentPrice),
+      originalPrice: Number(stock.previousClose),
+      oldPrice: oldPrice,
+      brokerHouseName: brokerHouseName, // Include brokerHouseName
     });
     await transaction.save();
 
-    res.status(200).json({ message: "Stock sold successfully", transaction });
+    res.status(200).json({
+      message: "Stock sold successfully",
+      transaction: {
+        transactionID: transactionId,
+        sellerName: seller.username,
+        buyerName: buyer.username,
+        stockName: stock.stockName,
+        quantity: Number(quantity),
+        tradePrice: Number(tradePrice),
+        totalPrice: totalCost,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports.revertTransaction = async (req, res) => {
+  try {
+    const { transactionID } = req.body;
+
+    const transaction = await Transaction.findOne({ transactionID });
+    if (!transaction) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+    // console.log(transaction);
+    const seller = await userModel.findById(transaction.sellerID);
+    const buyer = await userModel.findById(transaction.buyerID);
+    const stock = await stockModel.findById(transaction.stockNumber);
+
+    if (!seller || !buyer || !stock) {
+      return res.status(404).json({ message: "Invalid transaction details" });
+    }
+
+    // Revert the transaction
+    const totalCost = transaction.units * transaction.price;
+    const brokerageRate = (
+      await brokerHouseModel.findOne({ name: transaction.brokerHouseName })
+    ).brokerage;
+    const brokerageFee = (totalCost * brokerageRate) / 100;
+
+    // Update seller's portfolio and balance
+    const sellerStock = seller.portfolio.find(
+      (p) => p.stock.toString() === stock._id.toString()
+    );
+    if (sellerStock) {
+      sellerStock.quantity += transaction.units;
+    } else {
+      seller.portfolio.push({
+        stock: stock._id,
+        quantity: transaction.units,
+        averageBuyPrice: transaction.price,
+      });
+    }
+    seller.balance -= totalCost;
+    seller.balance += brokerageFee; // Add brokerage fee back to seller's balance
+
+    // Update buyer's portfolio and balance
+    const buyerStock = buyer.portfolio.find(
+      (p) => p.stock.toString() === stock._id.toString()
+    );
+    if (buyerStock) {
+      buyerStock.quantity -= transaction.units;
+      if (buyerStock.quantity === 0) {
+        buyer.portfolio = buyer.portfolio.filter(
+          (p) => p.stock.toString() !== stock._id.toString()
+        );
+      }
+    }
+    buyer.balance += totalCost;
+    buyer.balance += brokerageFee; // Add brokerage fee back to buyer's balance
+
+    await seller.save();
+    await buyer.save();
+
+    // Check if the stock's current price has changed
+    if (stock.previousClose !== transaction.originalPrice) {
+      // Calculate the price change factor for the reverted transaction
+      const priceDifference =
+        Number(transaction.price) - Number(stock.currentPrice);
+      const priceChangeFactor = parseFloat(
+        (
+          (Number(transaction.units) / Number(stock.totalUnits)) *
+          (priceDifference + 2.4) *
+          12.6
+        ).toFixed(2)
+      );
+
+      // Revert the stock price change
+      stock.currentPrice = Number(stock.currentPrice) - priceChangeFactor;
+    } else {
+      // Fetch the original price from the transaction log
+      stock.currentPrice = transaction.originalPrice;
+      stock.previousClose = transaction.oldPrice;
+    }
+
+    await stock.save();
+
+    // Delete the transaction
+    await Transaction.deleteOne({ transactionID });
+
+    res.status(200).json({ message: "Transaction reverted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -511,9 +614,18 @@ module.exports.tradeWithMarket = async (req, res) => {
       });
       await transaction.save();
 
-      return res
-        .status(200)
-        .json({ message: "Stock purchased from the market", transaction });
+      return res.status(200).json({
+        message: "Stock purchased from the market",
+        transaction: {
+          transactionID: transactionId,
+          sellerName: "Market",
+          buyerName: user.username,
+          stockName: stock.stockName,
+          quantity: Number(quantity),
+          tradePrice: Number(totalCost),
+          totalPrice: totalCost,
+        },
+      });
     } else if (action === "sell") {
       // User selling to the market
       const userStock = user.portfolio.find(
@@ -574,9 +686,18 @@ module.exports.tradeWithMarket = async (req, res) => {
       });
       await transaction.save();
 
-      return res
-        .status(200)
-        .json({ message: "Stock sold to the market", transaction });
+      return res.status(200).json({
+        message: "Stock sold to the market",
+        transaction: {
+          transactionID: transactionId,
+          sellerName: user.username,
+          buyerName: "Market",
+          stockName: stock.stockName,
+          quantity: Number(quantity),
+          tradePrice: Number(totalCost),
+          totalPrice: totalCost,
+        },
+      });
     } else {
       return res.status(400).json({ message: "Invalid action" });
     }

@@ -46,6 +46,13 @@ const transactionSchema = new mongoose.Schema(
       required: [true, "Original price is required"],
       min: [0, "Original price cannot be negative"],
     },
+    oldPrice: {
+      type: Number,
+      min: [0, "Original price cannot be negative"],
+    },
+    brokerHouseName: {
+      type: String,
+    },
     transactionTime: {
       type: String,
     },
