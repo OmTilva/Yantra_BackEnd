@@ -3,6 +3,7 @@ const stockModel = require("../models/stocks.model");
 const Transaction = require("../models/transaction.model");
 const brokerHouseModel = require("../models/brokerHouse.model");
 const userModel = require("../models/user.model");
+const Manipulator = require("../models/manipulator.model");
 const ipoTransactionModel = require("../models/ipoTransaction.model");
 const { validationResult } = require("express-validator");
 const { v4: uuidv4 } = require("uuid");
@@ -362,13 +363,17 @@ module.exports.sellStock = async (req, res) => {
     await seller.save();
     await buyer.save();
 
+    // Fetch the manipulator value
+    // const manipulator = await Manipulator.findOne();
+    // const manipulatorValue = manipulator ? manipulator.value : 900000;
+
     // 6. Calculate the new stock price
     const priceDifference = Number(tradePrice) - Number(stock.currentPrice);
     const priceChangeFactor = parseFloat(
       (
         (Number(quantity) / Number(stock.totalUnits)) *
         (priceDifference + 2.4) *
-        12.6
+        14.6
       ).toFixed(2)
     );
 
