@@ -315,18 +315,8 @@ module.exports.sellStock = async (req, res) => {
     const totalCost = Number(quantity) * Number(tradePrice);
     const brokerageFee = (totalCost * brokerageRate) / 100;
 
-    //  Deduct the brokerage fee from both the buyer and seller
-    if (seller.balance < brokerageFee || buyer.balance < brokerageFee) {
-      return res.status(400).json({ message: "Insufficient balance" });
-    }
-    seller.balance -= brokerageFee;
-    buyer.balance -= brokerageFee;
-
-    await seller.save();
-    await buyer.save();
-
-    if (Number(buyer.balance) < totalCost) {
-      return res.status(400).json({ message: "Insufficient balance" });
+    if (Number(buyer.balance) < totalCost + brokerageFee) {
+      return res.status(400).json({ message: "Buyer has Insufficient balance" });
     }
 
     // 5. Perform the transaction
@@ -363,9 +353,19 @@ module.exports.sellStock = async (req, res) => {
     await seller.save();
     await buyer.save();
 
+    // Deduct the brokerage fee from both the buyer and seller
+    if (seller.balance < brokerageFee || buyer.balance < brokerageFee) {
+      return res.status(400).json({ message: "Insufficient balance for brokerage fee" });
+    }
+    seller.balance -= brokerageFee;
+    buyer.balance -= brokerageFee;
+
+    await seller.save();
+    await buyer.save();
+
     // Fetch the manipulator value
-    // const manipulator = await Manipulator.findOne();
-    // const manipulatorValue = manipulator ? manipulator.value : 900000;
+    const manipulator = await Manipulator.findOne();
+    const manipulatorValue = manipulator ? manipulator.value : 900000;
 
     // 6. Calculate the new stock price
     const priceDifference = Number(tradePrice) - Number(stock.currentPrice);
