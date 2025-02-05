@@ -71,14 +71,14 @@ stockSchema.methods.calculateIPOLaunchingPrice = async function () {
     });
   });
 
-  console.log("demandVolume:", demandVolume);
+  // console.log("demandVolume:", demandVolume);
 
   const demandRatio = demandVolume / this.totalUnits;
-  console.log("demandRatio:", demandRatio);
+  // console.log("demandRatio:", demandRatio);
   const multiplier = 0.8; // Adjust this value to make the formula more bullish
   const ipoLaunchingPrice =
     this.ipoDetails.issuePrice * (0.9 + multiplier * demandRatio);
-  console.log("ipoLaunchingPrice:", ipoLaunchingPrice);
+  // console.log("ipoLaunchingPrice:", ipoLaunchingPrice);
 
   this.currentPrice = ipoLaunchingPrice;
   await this.save();

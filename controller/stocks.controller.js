@@ -316,7 +316,9 @@ module.exports.sellStock = async (req, res) => {
     const brokerageFee = (totalCost * brokerageRate) / 100;
 
     if (Number(buyer.balance) < totalCost + brokerageFee) {
-      return res.status(400).json({ message: "Buyer has Insufficient balance" });
+      return res
+        .status(400)
+        .json({ message: "Buyer has Insufficient balance" });
     }
 
     // 5. Perform the transaction
@@ -355,7 +357,9 @@ module.exports.sellStock = async (req, res) => {
 
     // Deduct the brokerage fee from both the buyer and seller
     if (seller.balance < brokerageFee || buyer.balance < brokerageFee) {
-      return res.status(400).json({ message: "Insufficient balance for brokerage fee" });
+      return res
+        .status(400)
+        .json({ message: "Insufficient balance for brokerage fee" });
     }
     seller.balance -= brokerageFee;
     buyer.balance -= brokerageFee;
@@ -365,15 +369,15 @@ module.exports.sellStock = async (req, res) => {
 
     // Fetch the manipulator value
     const manipulator = await Manipulator.findOne();
-    const manipulatorValue = manipulator ? manipulator.value : 900000;
+    const manipulatorValue = manipulator ? manipulator.value : 20.6;
 
     // 6. Calculate the new stock price
     const priceDifference = Number(tradePrice) - Number(stock.currentPrice);
     const priceChangeFactor = parseFloat(
       (
-        (Number(quantity) / Number(stock.totalUnits)) *
+        (Number(quantity) / Number(stock.availableUnits)) *
         (priceDifference + 2.4) *
-        14.6
+        manipulatorValue
       ).toFixed(2)
     );
 
@@ -517,11 +521,6 @@ module.exports.tradeWithMarket = async (req, res) => {
   try {
     const { username, stockName, quantity, action } = req.body;
 
-    // Validate input
-    if (!username || !stockName || !quantity || !action) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
     // Fetch user details by username
     const user = await userModel.findOne({ username: username.trim() });
     if (!user) {
@@ -576,19 +575,22 @@ module.exports.tradeWithMarket = async (req, res) => {
         });
       }
       user.balance = Number(user.balance) - totalCost;
-      stock.availableUnits = Number(stock.availableUnits) - Number(quantity);
 
+      // Save the updated user account
       await user.save();
-      await stock.save();
+
+      // Fetch the manipulator value
+      const manipulator = await Manipulator.findOne();
+      const manipulatorValue = manipulator ? manipulator.value : 20.6;
 
       // Calculate the new stock price
       const priceDifference =
         Number(stock.currentPrice) - Number(stock.previousClose);
       const priceChangeFactor = parseFloat(
         (
-          (Number(quantity) / Number(stock.totalUnits)) *
+          (Number(quantity) / Number(stock.availableUnits)) *
           (priceDifference + 2.4) *
-          12.6
+          manipulatorValue
         ).toFixed(2)
       );
 
@@ -596,41 +598,13 @@ module.exports.tradeWithMarket = async (req, res) => {
       stock.previousClose = Number(stock.currentPrice);
       stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
 
-      // Update the stock price in the collection
+      // Update available units after calculating the new stock price
+      stock.availableUnits = Number(stock.availableUnits) - Number(quantity);
+
+      // Save the updated stock
       await stock.save();
 
-      // Fetch the admin's username from the session
-      const adminUsername = req.user.username;
-
-      // Generate a transaction ID
-      const transactionId = uuidv4();
-
-      // Log the transaction
-      const transaction = new Transaction({
-        transactionID: transactionId,
-        bankerUsername: adminUsername,
-        sellerID: null, // Market is the seller
-        buyerID: user._id,
-        stockNumber: stock._id,
-        units: Number(quantity),
-        price: Number(stock.currentPrice),
-        totalPrice: totalCost,
-        originalPrice: Number(stock.currentPrice),
-      });
-      await transaction.save();
-
-      return res.status(200).json({
-        message: "Stock purchased from the market",
-        transaction: {
-          transactionID: transactionId,
-          sellerName: "Market",
-          buyerName: user.username,
-          stockName: stock.stockName,
-          quantity: Number(quantity),
-          tradePrice: Number(totalCost),
-          totalPrice: totalCost,
-        },
-      });
+      res.status(200).json({ message: "Stock bought successfully" });
     } else if (action === "sell") {
       // User selling to the market
       const userStock = user.portfolio.find(
@@ -648,19 +622,22 @@ module.exports.tradeWithMarket = async (req, res) => {
         );
       }
       user.balance = Number(user.balance) + totalCost;
-      stock.availableUnits = Number(stock.availableUnits) + Number(quantity);
 
+      // Save the updated user account
       await user.save();
-      await stock.save();
+
+      // Fetch the manipulator value
+      const manipulator = await Manipulator.findOne();
+      const manipulatorValue = manipulator ? manipulator.value : 20.6;
 
       // Calculate the new stock price
       const priceDifference =
         Number(stock.currentPrice) - Number(stock.previousClose);
       const priceChangeFactor = parseFloat(
         (
-          (Number(quantity) / Number(stock.totalUnits)) *
+          (Number(quantity) / Number(stock.availableUnits)) *
           (priceDifference + 2.4) *
-          12.6
+          manipulatorValue
         ).toFixed(2)
       );
 
@@ -668,43 +645,15 @@ module.exports.tradeWithMarket = async (req, res) => {
       stock.previousClose = Number(stock.currentPrice);
       stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
 
-      // Update the stock price in the collection
+      // Update available units after calculating the new stock price
+      stock.availableUnits = Number(stock.availableUnits) + Number(quantity);
+
+      // Save the updated stock
       await stock.save();
 
-      // Fetch the admin's username from the session
-      const adminUsername = req.user.username;
-
-      // Generate a transaction ID
-      const transactionId = uuidv4();
-
-      // Log the transaction
-      const transaction = new Transaction({
-        transactionID: transactionId,
-        bankerUsername: adminUsername,
-        sellerID: user._id,
-        buyerID: null, // Market is the buyer
-        stockNumber: stock._id,
-        units: Number(quantity),
-        price: Number(stock.currentPrice),
-        totalPrice: totalCost,
-        originalPrice: Number(stock.currentPrice),
-      });
-      await transaction.save();
-
-      return res.status(200).json({
-        message: "Stock sold to the market",
-        transaction: {
-          transactionID: transactionId,
-          sellerName: user.username,
-          buyerName: "Market",
-          stockName: stock.stockName,
-          quantity: Number(quantity),
-          tradePrice: Number(totalCost),
-          totalPrice: totalCost,
-        },
-      });
+      res.status(200).json({ message: "Stock sold successfully" });
     } else {
-      return res.status(400).json({ message: "Invalid action" });
+      res.status(400).json({ message: "Invalid action" });
     }
   } catch (error) {
     res.status(500).json({ message: error.message });

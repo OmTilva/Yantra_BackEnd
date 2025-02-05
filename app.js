@@ -13,6 +13,7 @@ const stockRoute = require("./routes/stocks.routes");
 const searchRoute = require("./routes/search.routes");
 const logsRoute = require("./routes/logs.routes");
 const brokerHouseRoutes = require("./routes/brokerHouse.routes");
+const manipulatorRoutes = require("./routes/manipulator.routes"); // Import manipulator routes
 
 const app = express();
 
@@ -41,5 +42,7 @@ app.use("/search", searchRoute);
 app.use("/logs", logsRoute);
 
 app.use("/brokerhouse", brokerHouseRoutes);
+
+app.use("/manipulator", manipulatorRoutes); // Register manipulator routes
 
 module.exports = app;
