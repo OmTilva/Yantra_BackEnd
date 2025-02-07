@@ -28,6 +28,7 @@ module.exports.registerUser = async (req, res, next) => {
 
 module.exports.loginUser = async (req, res) => {
   try {
+    
     const { username, password } = req.body;
 
     const user = await userModel.findOne({ username }).select("+password");
