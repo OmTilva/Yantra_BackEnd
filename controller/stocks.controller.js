@@ -375,7 +375,7 @@ module.exports.sellStock = async (req, res) => {
     const priceDifference = Number(tradePrice) - Number(stock.currentPrice);
     const priceChangeFactor = parseFloat(
       (
-        (Number(quantity) / Number(stock.availableUnits)) *
+        (Number(quantity) / Number(stock.totalUnits)) *
         (priceDifference + 2.4) *
         manipulatorValue
       ).toFixed(2)
@@ -564,14 +564,12 @@ module.exports.tradeWithMarket = async (req, res) => {
           Number(userStock.quantity) * Number(userStock.averageBuyPrice) +
           totalCost;
         userStock.quantity = newTotalQuantity;
-        userStock.averageBuyPrice = (newTotalCost / newTotalQuantity).toFixed(
-          2
-        );
+        userStock.averageBuyPrice = (newTotalCost / newTotalQuantity).toFixed(2);
       } else {
         user.portfolio.push({
           stock: stock._id,
           quantity: Number(quantity),
-          averageBuyPrice: stock.currentPrice,
+          averageBuyPrice: Number(stock.currentPrice),
         });
       }
       user.balance = Number(user.balance) - totalCost;
@@ -588,7 +586,7 @@ module.exports.tradeWithMarket = async (req, res) => {
         Number(stock.currentPrice) - Number(stock.previousClose);
       const priceChangeFactor = parseFloat(
         (
-          (Number(quantity) / Number(stock.availableUnits)) *
+          (Number(quantity) / Number(stock.totalUnits)) *
           (priceDifference + 2.4) *
           manipulatorValue
         ).toFixed(2)
@@ -631,19 +629,29 @@ module.exports.tradeWithMarket = async (req, res) => {
       const manipulatorValue = manipulator ? manipulator.value : 20.6;
 
       // Calculate the new stock price
-      const priceDifference =
-        Number(stock.currentPrice) - Number(stock.previousClose);
+      const priceDifference = Number(stock.currentPrice) - Number(stock.previousClose);
       const priceChangeFactor = parseFloat(
         (
           (Number(quantity) / Number(stock.availableUnits)) *
           (priceDifference + 2.4) *
-          manipulatorValue
+          (-manipulatorValue) // Use negative manipulator value to decrease price
         ).toFixed(2)
       );
 
+      // Ensure the priceChangeFactor is a valid number
+      if (isNaN(priceChangeFactor)) {
+        return res.status(500).json({ message: "Error calculating new stock price" });
+      }
+
       // Update previousClose before updating currentPrice
+      const oldPrice = stock.previousClose;
       stock.previousClose = Number(stock.currentPrice);
       stock.currentPrice = Number(stock.currentPrice) + priceChangeFactor;
+
+      // Ensure the new currentPrice is a valid number
+      if (isNaN(stock.currentPrice)) {
+        return res.status(500).json({ message: "Error updating stock price" });
+      }
 
       // Update available units after calculating the new stock price
       stock.availableUnits = Number(stock.availableUnits) + Number(quantity);
